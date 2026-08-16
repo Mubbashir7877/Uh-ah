@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Uh-Ah doesn't need to lock the screen or wipe data — it only needs the app
+    to exist as a device admin so that, if the user later provisions it as
+    Device Owner (via `adb shell dpm set-device-owner`), package-management
+    calls like silent uninstall become available. A device admin is required
+    to declare at least one policy; force-lock is the least invasive one that
+    still satisfies the requirement.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

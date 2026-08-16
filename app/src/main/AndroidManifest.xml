@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Lets PackageInstaller.uninstall() be called at all; without Device Owner
+         status it still surfaces the system's uninstall confirmation dialog. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Without this, package-visibility filtering (targetSdk 30+) means
+         PackageInstallReceiver's ACTION_PACKAGE_ADDED never fires for packages
+         we don't already have visibility into — which is most Play Store
+         installs, since the delete list is built at runtime from arbitrary
+         search results and can't be declared as a static <queries> allowlist. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <!-- UninstallWatcherService: a foreground service is the only way to get a
+         reliable ~2.5s polling cadence past Android's background execution
+         limits; POST_NOTIFICATIONS is for its (silent, min-priority) status
+         notification, and BOOT_COMPLETED lets it resume after a reboot
+         without the user having to reopen the app first. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:name=".UhAhApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.UhAh">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.UhAh"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".device.UhAhDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- System broadcast: fires even when the app isn't running. -->
+        <receiver
+            android:name=".device.PackageInstallReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_ADDED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Only ever targeted by our own explicit PendingIntent (silent-uninstall status callback). -->
+        <receiver
+            android:name=".device.UninstallResultReceiver"
+            android:exported="false" />
+
+        <!-- Resumes UninstallWatcherService after a reboot; see BootReceiver's doc comment. -->
+        <receiver
+            android:name=".device.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Started/stopped by UhAhApplication in lockstep with the master toggle. -->
+        <service
+            android:name=".device.UninstallWatcherService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Continuously enforces the user's configured app delete list, uninstalling matches the moment they're detected" />
+        </service>
+
+        <!-- User-enabled in system Accessibility settings, not by the app; see
+             UninstallAccessibilityService's doc comment for why this is what
+             makes uninstall confirmation work while Uh-Ah is backgrounded. -->
+        <service
+            android:name=".device.UninstallAccessibilityService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+    </application>
+
+</manifest>
