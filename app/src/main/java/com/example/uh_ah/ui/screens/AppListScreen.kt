@@ -45,10 +45,13 @@ fun AppListScreen(
     onDeleteApp: (AppEntity) -> Unit,
     onAddClick: () -> Unit,
     onEnableDeviceAdmin: () -> Unit,
-    onEnableAccessibility: () -> Unit
+    onEnableAccessibility: () -> Unit,
+    selectedTab: EngineTab,
+    onTabSelected: (EngineTab) -> Unit
 ) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = { EngineNavigationBar(selectedTab, onTabSelected) },
         topBar = {
             TopAppBar(
                 title = { Text("Uh-Ah 🚫") },

@@ -4,6 +4,13 @@ import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.uh_ah.data.InstallProtectionRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 /**
  * Auto-confirms the system uninstall dialog [UninstallEngine.triggerUninstallDialog]
@@ -20,14 +27,42 @@ import android.view.accessibility.AccessibilityNodeInfo
  */
 class UninstallAccessibilityService : AccessibilityService() {
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    @Volatile private var protectedApps: List<ProtectedTarget> = emptyList()
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        val repo = InstallProtectionRepository.getInstance(this)
+        serviceScope.launch {
+            combine(repo.apps, repo.masterEnabled) { apps, masterEnabled ->
+                if (!masterEnabled) emptyList() else apps
+                    .filter { it.isEnabled }
+                    .map { ProtectedTarget(it.packageName, it.appName) }
+            }.collect { protectedApps = it }
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         val packageName = event.packageName?.toString() ?: return
-        if (packageName !in PACKAGE_INSTALLER_PACKAGES) return
-        if (UninstallEngine.pendingAutoConfirm.isEmpty()) return
+        if (UninstallEngine.pendingAutoConfirm.isEmpty() && protectedApps.isEmpty()) return
 
         val root = rootInActiveWindow ?: return
         try {
+            // Stock Android uses one of the known installer packages. OEM builds may
+            // host the dialog elsewhere, but an app-info page also has an Uninstall
+            // action. For unknown hosts require both Uninstall and Cancel controls,
+            // which identifies the confirmation dialog without closing app details.
+            if (packageName !in PACKAGE_INSTALLER_PACKAGES &&
+                (findConfirmButton(root) == null || findCancelButton(root) == null)) return
+
+            val protectedTarget = findProtectedTarget(root)
+            if (protectedTarget != null) {
+                dismissProtectedUninstall(root, protectedTarget)
+                return
+            }
+
             val button = findConfirmButton(root) ?: return
             val target = UninstallEngine.pendingAutoConfirm.keys.firstOrNull { UninstallEngine.hasPendingAutoConfirm(it) }
             if (target == null) return
@@ -39,6 +74,30 @@ class UninstallAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** Cancels an uninstall initiated from a launcher, app library, or Settings. */
+    private fun dismissProtectedUninstall(root: AccessibilityNodeInfo, target: ProtectedTarget) {
+        val cancelButton = findCancelButton(root)
+        val dismissed = cancelButton?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true ||
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        Log.i(TAG, "Blocked uninstall of ${target.packageName}: $dismissed")
+    }
+
+    private fun findProtectedTarget(root: AccessibilityNodeInfo): ProtectedTarget? {
+        val visibleStrings = mutableListOf<String>()
+        collectVisibleStrings(root, visibleStrings)
+        return protectedApps.firstOrNull { target ->
+            UninstallDialogMatcher.matches(target.packageName, target.appName, visibleStrings)
+        }
+    }
+
+    private fun collectVisibleStrings(node: AccessibilityNodeInfo, output: MutableList<String>) {
+        node.text?.toString()?.let(output::add)
+        node.contentDescription?.toString()?.let(output::add)
+        for (i in 0 until node.childCount) {
+            node.getChild(i)?.let { collectVisibleStrings(it, output) }
+        }
+    }
+
     /**
      * The confirmation dialog's positive button is `android:id/button1` on every
      * stock/AOSP-derived build we've seen; text/content-description is the
@@ -47,6 +106,11 @@ class UninstallAccessibilityService : AccessibilityService() {
     private fun findConfirmButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         root.findAccessibilityNodeInfosByViewId("android:id/button1").firstOrNull()?.let { return it }
         return findNodeByText(root, POSITIVE_BUTTON_LABELS)
+    }
+
+    private fun findCancelButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        root.findAccessibilityNodeInfosByViewId("android:id/button2").firstOrNull()?.let { return it }
+        return findNodeByText(root, NEGATIVE_BUTTON_LABELS)
     }
 
     private fun findNodeByText(node: AccessibilityNodeInfo, labels: Set<String>): AccessibilityNodeInfo? {
@@ -62,6 +126,13 @@ class UninstallAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    private data class ProtectedTarget(val packageName: String, val appName: String)
+
     private companion object {
         const val TAG = "UninstallA11yService"
         val PACKAGE_INSTALLER_PACKAGES = setOf(
@@ -71,5 +142,6 @@ class UninstallAccessibilityService : AccessibilityService() {
             "com.google.android.permissioncontroller"
         )
         val POSITIVE_BUTTON_LABELS = setOf("ok", "uninstall")
+        val NEGATIVE_BUTTON_LABELS = setOf("cancel", "no", "keep app")
     }
 }

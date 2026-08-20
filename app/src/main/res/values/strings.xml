@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Uh-Ah</string>
-    <string name="accessibility_service_description">Lets Uh-Ah automatically confirm the system uninstall dialog for apps on your delete list, so removal doesn\'t need a manual tap.</string>
+    <string name="accessibility_service_description">Lets Uh-Ah confirm removals from your delete list and cancel uninstall dialogs for apps on your keep-installed list.</string>
 </resources>

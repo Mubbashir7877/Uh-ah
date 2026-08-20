@@ -26,14 +26,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.uh_ah.device.AccessibilityHelper
 import com.example.uh_ah.device.DeviceAdminHelper
 import com.example.uh_ah.ui.MainViewModel
+import com.example.uh_ah.ui.InstallProtectionViewModel
 import com.example.uh_ah.ui.screens.AddAppSheet
+import com.example.uh_ah.ui.screens.AddInstalledAppSheet
 import com.example.uh_ah.ui.screens.AppListScreen
+import com.example.uh_ah.ui.screens.EngineTab
+import com.example.uh_ah.ui.screens.InstallProtectionScreen
+import com.example.uh_ah.ui.screens.InstallSurveyScreen
 import com.example.uh_ah.ui.screens.SurveyScreen
 import com.example.uh_ah.ui.theme.UhAhTheme
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
+    private val installProtectionViewModel: InstallProtectionViewModel by viewModels()
 
     private val requestDeviceAdmin = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -56,6 +62,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     UhAhApp(
                         viewModel = viewModel,
+                        installViewModel = installProtectionViewModel,
                         onEnableDeviceAdmin = { requestDeviceAdmin.launch(DeviceAdminHelper.requestActivationIntent(this)) },
                         onEnableAccessibility = { startActivity(AccessibilityHelper.openAccessibilitySettingsIntent()) }
                     )
@@ -68,6 +75,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun UhAhApp(
     viewModel: MainViewModel,
+    installViewModel: InstallProtectionViewModel,
     onEnableDeviceAdmin: () -> Unit,
     onEnableAccessibility: () -> Unit
 ) {
@@ -79,18 +87,31 @@ private fun UhAhApp(
     val addAppQuery by viewModel.addAppQuery.collectAsStateWithLifecycle()
     val addAppState by viewModel.addAppState.collectAsStateWithLifecycle()
     val surveyState by viewModel.surveyState.collectAsStateWithLifecycle()
+    val protectedApps by installViewModel.apps.collectAsStateWithLifecycle()
+    val installMasterEnabled by installViewModel.masterEnabled.collectAsStateWithLifecycle()
+    val showInstalledAppSheet by installViewModel.showAddSheet.collectAsStateWithLifecycle()
+    val installedAppQuery by installViewModel.query.collectAsStateWithLifecycle()
+    val installedApps by installViewModel.filteredInstalledApps.collectAsStateWithLifecycle()
+    val isScanningInstalledApps by installViewModel.isScanning.collectAsStateWithLifecycle()
+    val installSurveyState by installViewModel.surveyState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
         viewModel.events.collect { message -> snackbarHostState.showSnackbar(message) }
     }
+    LaunchedEffect(Unit) {
+        installViewModel.events.collect { message -> snackbarHostState.showSnackbar(message) }
+    }
+
+    var selectedTab by remember { mutableStateOf(EngineTab.REMOVE_INSTALLED) }
 
     var showFirstLaunchPrompt by remember {
         mutableStateOf(!viewModel.hasSeenDeviceAdminPrompt() && !isDeviceAdminActive)
     }
 
     val currentSurvey = surveyState
-    if (currentSurvey != null) {
+    val currentInstallSurvey = installSurveyState
+    if (selectedTab == EngineTab.REMOVE_INSTALLED && currentSurvey != null) {
         SurveyScreen(
             state = currentSurvey,
             onAnswer = viewModel::answerSurveyQuestion,
@@ -98,7 +119,15 @@ private fun UhAhApp(
             onSubmitConfirm = viewModel::submitConfirmText,
             onCancel = viewModel::cancelSurvey
         )
-    } else {
+    } else if (selectedTab == EngineTab.KEEP_INSTALLED && currentInstallSurvey != null) {
+        InstallSurveyScreen(
+            state = currentInstallSurvey,
+            onAnswer = installViewModel::answerSurveyQuestion,
+            onConfirmTextChange = installViewModel::updateConfirmText,
+            onSubmitConfirm = installViewModel::submitConfirmText,
+            onCancel = installViewModel::cancelSurvey
+        )
+    } else if (selectedTab == EngineTab.REMOVE_INSTALLED) {
         AppListScreen(
             apps = apps,
             masterEnabled = masterEnabled,
@@ -110,7 +139,23 @@ private fun UhAhApp(
             onDeleteApp = viewModel::onDeleteRequested,
             onAddClick = viewModel::openAddAppSheet,
             onEnableDeviceAdmin = onEnableDeviceAdmin,
-            onEnableAccessibility = onEnableAccessibility
+            onEnableAccessibility = onEnableAccessibility,
+            selectedTab = selectedTab,
+            onTabSelected = { selectedTab = it }
+        )
+    } else {
+        InstallProtectionScreen(
+            apps = protectedApps,
+            masterEnabled = installMasterEnabled,
+            isAccessibilityServiceActive = isAccessibilityServiceActive,
+            snackbarHostState = snackbarHostState,
+            onMasterToggle = installViewModel::setMasterEnabled,
+            onAppToggle = installViewModel::onAppToggleRequested,
+            onDeleteApp = installViewModel::onDeleteRequested,
+            onAddClick = installViewModel::openAddSheet,
+            onEnableAccessibility = onEnableAccessibility,
+            selectedTab = selectedTab,
+            onTabSelected = { selectedTab = it }
         )
     }
 
@@ -122,6 +167,17 @@ private fun UhAhApp(
             onSearch = viewModel::searchPlayStore,
             onConfirmAdd = viewModel::confirmAddApp,
             onDismiss = viewModel::dismissAddAppSheet
+        )
+    }
+
+    if (showInstalledAppSheet) {
+        AddInstalledAppSheet(
+            query = installedAppQuery,
+            apps = installedApps,
+            isScanning = isScanningInstalledApps,
+            onQueryChange = installViewModel::updateQuery,
+            onAdd = installViewModel::addApp,
+            onDismiss = installViewModel::dismissAddSheet
         )
     }
 

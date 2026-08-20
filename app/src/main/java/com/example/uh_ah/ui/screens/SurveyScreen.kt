@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.example.uh_ah.ui.PendingAction
 import com.example.uh_ah.ui.SURVEY_QUESTIONS
 import com.example.uh_ah.ui.SurveyState
+import com.example.uh_ah.ui.components.rememberQuestionNarrationComplete
 
 /**
  * Full-screen, visually distinct from the main list on purpose: this is a
@@ -98,6 +99,7 @@ fun SurveyScreen(
 
 @Composable
 private fun QuestionPage(question: String, onAnswer: (Boolean) -> Unit) {
+    val narrationComplete = rememberQuestionNarrationComplete(question)
     Text(
         text = question,
         style = MaterialTheme.typography.headlineSmall,
@@ -114,8 +116,9 @@ private fun QuestionPage(question: String, onAnswer: (Boolean) -> Unit) {
         ) { Text("No") }
         Button(
             onClick = { onAnswer(true) },
+            enabled = narrationComplete,
             modifier = Modifier.weight(1f)
-        ) { Text("Yes") }
+        ) { Text(if (narrationComplete) "Yes" else "Listening…") }
     }
 }
 
