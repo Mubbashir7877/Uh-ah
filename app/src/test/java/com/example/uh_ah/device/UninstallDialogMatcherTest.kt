@@ -16,6 +16,16 @@ class UninstallDialogMatcherTest {
     }
 
     @Test
+    fun matchesDeviceAdminDeactivationForProtectedApp() {
+        assertTrue(UninstallDialogMatcher.matches("com.example.uh_ah", "Uh-Ah", listOf("Uh-Ah", "Deactivate this device admin app?")))
+    }
+
+    @Test
+    fun doesNotTreatUnrelatedDeactivationAsProtectedAppRemoval() {
+        assertFalse(UninstallDialogMatcher.matches("com.example.uh_ah", "Uh-Ah", listOf("Other Admin", "Deactivate this device admin app?")))
+    }
+
+    @Test
     fun appNameAloneDoesNotIdentifyAnUninstallDialog() {
         assertFalse(UninstallDialogMatcher.matches("com.example.notes", "Notes", listOf("Notes", "Open by default")))
     }

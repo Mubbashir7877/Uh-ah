@@ -9,17 +9,19 @@ internal object UninstallDialogMatcher {
 
         // The app name is commonly the title of uninstall, update, permission,
         // and other Package Installer dialogs. Identity alone therefore isn't
-        // enough: only block a window that also explicitly describes uninstalling.
+        // enough: only block a window that explicitly describes removing the app
+        // or deactivating it as a device administrator.
         val identifiesTarget = normalizedStrings.any { text ->
             text.contains(packageNeedle) || text.containsWholePhrase(appNeedle)
         }
-        val describesUninstall = normalizedStrings.any { text ->
+        val describesProtectedRemoval = normalizedStrings.any { text ->
             text.containsWholePhrase("uninstall") ||
                 text.containsWholePhrase("remove app") ||
+                text.containsWholePhrase("deactivate") ||
                 (text.containsWholePhrase("remove") &&
                     (text.contains(packageNeedle) || text.containsWholePhrase(appNeedle)))
         }
-        return identifiesTarget && describesUninstall
+        return identifiesTarget && describesProtectedRemoval
     }
 
     private fun String.containsWholePhrase(phrase: String): Boolean {

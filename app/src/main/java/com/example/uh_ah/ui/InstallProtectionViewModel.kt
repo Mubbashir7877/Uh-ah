@@ -77,7 +77,6 @@ class InstallProtectionViewModel(application: Application) : AndroidViewModel(ap
                 val pm = getApplication<Application>().packageManager
                 pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
                     .asSequence()
-                    .filter { it.packageName != getApplication<Application>().packageName }
                     .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
                     .map { InstalledApp(it.packageName, pm.getApplicationLabel(it).toString()) }
                     .sortedBy { it.appName.lowercase() }

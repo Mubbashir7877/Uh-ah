@@ -74,7 +74,7 @@ class UninstallAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Cancels an uninstall initiated from a launcher, app library, or Settings. */
+    /** Cancels an uninstall or device-admin deactivation for an enabled protected app. */
     private fun dismissProtectedUninstall(root: AccessibilityNodeInfo, target: ProtectedTarget) {
         val cancelButton = findCancelButton(root)
         val dismissed = cancelButton?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true ||
@@ -141,7 +141,7 @@ class UninstallAccessibilityService : AccessibilityService() {
             "com.android.permissioncontroller",
             "com.google.android.permissioncontroller"
         )
-        val POSITIVE_BUTTON_LABELS = setOf("ok", "uninstall")
+        val POSITIVE_BUTTON_LABELS = setOf("ok", "uninstall", "deactivate")
         val NEGATIVE_BUTTON_LABELS = setOf("cancel", "no", "keep app")
     }
 }

@@ -3,6 +3,9 @@ package com.example.uh_ah.device
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
@@ -78,6 +81,10 @@ object UninstallEngine {
             Log.d(TAG, "${entry.appName} is on the list but individually toggled off")
             return
         }
+        if (!isRemovableInstalledPackage(context, packageName)) {
+            Log.i(TAG, "Ignoring $packageName because it is not a removable user-installed package")
+            return
+        }
         uninstall(context, packageName)
     }
 
@@ -94,7 +101,9 @@ object UninstallEngine {
         if (targets.isEmpty()) return
 
         val installed = try {
-            context.packageManager.getInstalledPackages(0).mapTo(HashSet()) { it.packageName }
+            context.packageManager.getInstalledPackages(0)
+                .filterTo(mutableListOf(), ::isRemovableInstalledPackage)
+                .mapTo(HashSet()) { it.packageName }
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't list installed packages", e)
             return
@@ -106,6 +115,28 @@ object UninstallEngine {
             }
         }
     }
+
+    private fun isRemovableInstalledPackage(context: Context, packageName: String): Boolean =
+        try {
+            val packageInfo = context.packageManager.getPackageInfo(packageName, 0)
+            isRemovableInstalledPackage(packageInfo)
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+
+    /**
+     * A preloaded system app can remain in PackageManager after Android has
+     * removed its updates or uninstalled it for the current user. Retrying an
+     * uninstall can never remove that read-only base package, so exclude it.
+     */
+    private fun isRemovableInstalledPackage(packageInfo: PackageInfo): Boolean {
+        val flags = packageInfo.applicationInfo?.flags ?: return false
+        return isRemovableInstalledApp(flags)
+    }
+
+    internal fun isRemovableInstalledApp(flags: Int): Boolean =
+        flags and ApplicationInfo.FLAG_INSTALLED != 0 &&
+            flags and ApplicationInfo.FLAG_SYSTEM == 0
 
     private fun uninstall(context: Context, packageName: String) {
         val now = SystemClock.elapsedRealtime()
