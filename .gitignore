@@ -13,3 +13,17 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Android signing material and transfer keys
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pk8
+*.pem
+*.key
+*.transfer-key
+keystore.properties
+signing.properties
+*.keystore.enc
+!/signing-transfer/uh-ah-original-debug.keystore.enc
