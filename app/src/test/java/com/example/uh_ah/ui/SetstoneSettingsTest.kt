@@ -27,7 +27,7 @@ class SetstoneSettingsTest {
             settings.requestChange(control, false)
             assertEquals(control, settings.pendingDisable.value)
             assertTrue(settings.enabled.value.getValue(control))
-            assertTrue(settings.confirmDisable("12345"))
+            assertTrue(settings.confirmDisable(SetstonePassword.VALUE))
 
             assertEquals(mapOf(control to false), store.saved)
             assertEquals(SetstoneControl.entries.associateWith { it != control }, settings.enabled.value)
@@ -42,11 +42,11 @@ class SetstoneSettingsTest {
         val control = SetstoneControl.BROWSER_CONTROL
 
         settings.requestChange(control, false)
-        assertFalse(settings.confirmDisable("wrong"))
+        assertFalse(settings.confirmDisable(SetstonePassword.VALUE + "0"))
         assertTrue(settings.enabled.value.getValue(control))
         assertEquals(control, settings.pendingDisable.value)
         assertTrue(store.saved.isEmpty())
-        assertTrue(settings.confirmDisable("12345"))
+        assertTrue(settings.confirmDisable(SetstonePassword.VALUE))
     }
 
     @Test
@@ -59,7 +59,7 @@ class SetstoneSettingsTest {
         settings.cancelDisable()
 
         assertNull(settings.pendingDisable.value)
-        assertFalse(settings.confirmDisable("12345"))
+        assertFalse(settings.confirmDisable(SetstonePassword.VALUE))
         assertTrue(settings.enabled.value.getValue(control))
         assertTrue(store.saved.isEmpty())
     }
@@ -70,7 +70,7 @@ class SetstoneSettingsTest {
         val control = SetstoneControl.VPN_SECURITY
         val original = SetstoneSettings(store)
         original.requestChange(control, false)
-        assertTrue(original.confirmDisable("12345"))
+        assertTrue(original.confirmDisable(SetstonePassword.VALUE))
 
         val reopened = SetstoneSettings(store)
         assertFalse(reopened.enabled.value.getValue(control))

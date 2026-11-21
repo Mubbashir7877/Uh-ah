@@ -52,7 +52,7 @@ class UberEatsGuardTest {
         fixture.event(listOf(navigation, tabs("Eats", selected = 0)))
         fixture.event(listOf(navigation, tabs("Rides", "Eats", selected = 1)))
         fixture.event(listOf(navigation, tabs("Uber", "Eats", "Shops", "Courier", selected = -1)))
-        fixture.event(listOf(navigation, eats.last() + UberTab("Other", true)))
+        fixture.event(listOf(navigation, eats.last() + UberTab("other", true)))
         fixture.event(eats + listOf(rides.last()))
         fixture.event(listOf(navigation, eats.last().map { it.copy(selected = true) }))
         assertEquals(0, fixture.homeActions)
@@ -69,8 +69,39 @@ class UberEatsGuardTest {
         assertEquals(2, fixture.homeActions)
     }
 
+    @Test
+    fun compactTopServiceNavigationCanSelectEatsWithoutTheBottomBar() {
+        val fixture = Fixture()
+        fixture.event(listOf(tabs("Ride", "Uber Eats", selected = 0)), topServiceRow = true)
+        assertEquals(0, fixture.homeActions)
+
+        fixture.event(listOf(tabs("Ride", "Uber Eats, Tab, Selected", "Travel", selected = 1)), topServiceRow = true)
+        assertEquals(1, fixture.homeActions)
+    }
+
+    @Test
+    fun confirmedEatsTabActivationDoesNotRequireSelectedMetadata() {
+        val fixture = Fixture()
+        val tapped = listOf(UberTab("rides", true), UberTab("eats", false, activated = true))
+        fixture.event(listOf(tapped))
+        assertEquals(0, fixture.homeActions)
+
+        fixture.event(listOf(tapped), topServiceRow = true)
+        assertEquals(1, fixture.homeActions)
+    }
+
+    @Test
+    fun dedicatedEatsSearchDoesNotOverrideExplicitRidesSelection() {
+        val fixture = Fixture()
+        fixture.event(rides, hasEatsSearch = true)
+        assertEquals(0, fixture.homeActions)
+
+        fixture.event(emptyList(), hasEatsSearch = true)
+        assertEquals(1, fixture.homeActions)
+    }
+
     private fun tabs(vararg labels: String, selected: Int) =
-        labels.mapIndexed { index, label -> UberTab(label, index == selected) }
+        labels.mapIndexed { index, label -> UberTab(UberNavigation.tabLabel(label) ?: error(label), index == selected) }
 
     private class Fixture {
         val guard = UberEatsGuard()
@@ -80,9 +111,14 @@ class UberEatsGuardTest {
             groups: List<List<UberTab>>,
             enabled: Boolean = true,
             authorized: Boolean = true,
+            topServiceRow: Boolean = false,
+            hasEatsSearch: Boolean = false,
             packageName: String = UBER_RIDER_PACKAGE
         ) {
-            guard.handle(enabled, authorized, packageName, groups) { homeActions++ }
+            val rows = groups.map { UberTabRow(it, isTopServiceRow = topServiceRow) }
+            guard.handle(enabled, authorized, packageName, UberNavigationState(rows, hasEatsSearch)) {
+                homeActions++
+            }
         }
     }
 }

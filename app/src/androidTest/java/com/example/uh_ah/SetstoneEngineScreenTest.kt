@@ -17,6 +17,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.uh_ah.data.PreferencesManager
 import com.example.uh_ah.data.SetstoneControl
 import com.example.uh_ah.data.SetstoneSettingsStore
+import com.example.uh_ah.ui.SetstonePassword
 import com.example.uh_ah.ui.SetstoneSettings
 import com.example.uh_ah.ui.screens.SetstoneEngineScreen
 import com.example.uh_ah.ui.theme.UhAhTheme
@@ -47,14 +48,14 @@ class SetstoneEngineScreenTest {
             val browser = compose.onNodeWithContentDescription("Browser Control")
             browser.assertIsOn()
             browser.performClick()
-            compose.onNodeWithText("Password").performTextInput("00000")
+            compose.onNodeWithText("Password").performTextInput(SetstonePassword.VALUE + "0")
             compose.onNodeWithText("Confirm").performClick()
             compose.onNodeWithText("Incorrect password").assertExists()
             compose.onNodeWithText("Cancel").performClick()
             browser.assertIsOn()
 
             browser.performClick()
-            compose.onNodeWithText("Password").performTextInput("12345")
+            compose.onNodeWithText("Password").performTextInput(SetstonePassword.VALUE)
             compose.onNodeWithText("Confirm").performClick()
             browser.assertIsOff()
             val reopened = SetstoneSettings(PreferencesManager(context))

@@ -40,6 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.uh_ah.data.SetstoneControl
 import com.example.uh_ah.device.SamsungBrowserPackages
 import com.example.uh_ah.device.UninstallAccessibilityService
+import com.example.uh_ah.ui.SetstonePassword
 import com.example.uh_ah.ui.SetstoneSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -181,7 +182,9 @@ private fun SetstonePasswordDialog(
                 label = { Text("Password") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = if (SetstonePassword.isNumeric) KeyboardType.NumberPassword else KeyboardType.Password
+                ),
                 isError = invalid,
                 supportingText = { if (invalid) Text("Incorrect password") }
             )

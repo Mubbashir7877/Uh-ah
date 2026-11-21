@@ -38,8 +38,3 @@ internal class SetstoneSettings(private val store: SetstoneSettingsStore) {
         _enabled.value = _enabled.value + (control to enabled)
     }
 }
-
-private object SetstonePassword {
-    // Development-only shared password.
-    fun isValid(password: String): Boolean = password == "12345"
-}

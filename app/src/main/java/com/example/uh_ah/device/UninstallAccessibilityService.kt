@@ -69,7 +69,9 @@ class UninstallAccessibilityService : AccessibilityService() {
             if (packageName in SamsungBrowserRules.searchable) handleSamsungBrowser(event, packageName)
             return
         }
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_SELECTED) {
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_SELECTED ||
+            event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
+        ) {
             if (packageName == UBER_RIDER_PACKAGE) handleUberNavigation(event, packageName)
             return
         }
@@ -207,14 +209,15 @@ class UninstallAccessibilityService : AccessibilityService() {
         val active = rootInActiveWindow ?: return
         val foreground = active.packageName?.toString() ?: return
         if (active.windowId != event.windowId || foreground != UBER_RIDER_PACKAGE) return
-        val groups = UberAccessibilityNavigation.read(active)
-        if (groups.isEmpty()) return
+        val clickSource = if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) event.source else null
+        val navigation = UberAccessibilityNavigation.read(active, clickSource)
+        if (!UberNavigation.isEatsSelected(navigation)) return
 
         uberGuard.handle(
             enabled = preferences.isEnabled(SetstoneControl.UBER_CONTROL),
             authorized = AccessibilityHelper.isServiceEnabled(this),
             foregroundPackage = foreground,
-            groups = groups,
+            navigation = navigation,
             goHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
         )
     }
