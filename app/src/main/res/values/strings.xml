@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Uh-Ah</string>
-    <string name="accessibility_service_description">Lets Uh-Ah confirm removals from your delete list and cancel uninstall dialogs for apps on your keep-installed list.</string>
+    <string name="accessibility_service_description">Lets Uh-Ah confirm removals from your delete list and cancel uninstall dialogs for apps on your keep-installed list. When VPN Security is on, it can cancel a recognized SafeLook disconnect dialog and return to Home. When Uber Control is on, it can return to Home when the Eats tab is selected in the Uber rides app. Browser Control can return to Home from Samsung Browser and recognized related store and Settings screens.</string>
 </resources>

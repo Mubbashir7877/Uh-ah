@@ -1,16 +1,22 @@
 package com.example.uh_ah.device
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.uh_ah.data.InstallProtectionRepository
+import com.example.uh_ah.data.PreferencesManager
+import com.example.uh_ah.data.SetstoneControl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Auto-confirms the system uninstall dialog [UninstallEngine.triggerUninstallDialog]
@@ -30,8 +36,23 @@ class UninstallAccessibilityService : AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     @Volatile private var protectedApps: List<ProtectedTarget> = emptyList()
 
+    private val preferences by lazy { PreferencesManager(this) }
+    private var vpnCheckInProgress = false
+    private var browserIdentityCheckInProgress = false
+    private val browserGuard = SamsungBrowserGuard()
+    private var connected = false
+    private val uberGuard = UberEatsGuard()
+    private val vpnGuard = VpnDisconnectGuard {
+        vpnSecurityEnabled() && AccessibilityHelper.isServiceEnabled(this)
+    }
+
+    private fun vpnSecurityEnabled() =
+        connected && preferences.isEnabled(SetstoneControl.VPN_SECURITY)
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        connected = true
+        serviceConnected.value = true
         val repo = InstallProtectionRepository.getInstance(this)
         serviceScope.launch {
             combine(repo.apps, repo.masterEnabled) { apps, masterEnabled ->
@@ -43,9 +64,22 @@ class UninstallAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        val packageName = event.packageName?.toString() ?: return
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            if (packageName in SamsungBrowserRules.searchable) handleSamsungBrowser(event, packageName)
+            return
+        }
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_SELECTED) {
+            if (packageName == UBER_RIDER_PACKAGE) handleUberNavigation(event, packageName)
+            return
+        }
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
-        val packageName = event.packageName?.toString() ?: return
+        handleSamsungBrowser(event, packageName)
+        handleUberNavigation(event, packageName)
+        if (packageName == SafeLookVpnDialog.SETTINGS_PACKAGE && vpnSecurityEnabled()) {
+            checkVpnDialog(event.windowId)
+        }
         if (UninstallEngine.pendingAutoConfirm.isEmpty() && protectedApps.isEmpty()) return
 
         val root = rootInActiveWindow ?: return
@@ -54,8 +88,9 @@ class UninstallAccessibilityService : AccessibilityService() {
             // host the dialog elsewhere, but an app-info page also has an Uninstall
             // action. For unknown hosts require both Uninstall and Cancel controls,
             // which identifies the confirmation dialog without closing app details.
-            if (packageName !in PACKAGE_INSTALLER_PACKAGES &&
-                (findConfirmButton(root) == null || findCancelButton(root) == null)) return
+            val knownInstaller = packageName in PACKAGE_INSTALLER_PACKAGES
+            if (!knownInstaller && (findNodeByText(root, POSITIVE_BUTTON_LABELS) == null ||
+                    findNodeByText(root, NEGATIVE_BUTTON_LABELS) == null)) return
 
             val protectedTarget = findProtectedTarget(root)
             if (protectedTarget != null) {
@@ -63,7 +98,8 @@ class UninstallAccessibilityService : AccessibilityService() {
                 return
             }
 
-            val button = findConfirmButton(root) ?: return
+            val button = (if (knownInstaller) findConfirmButton(root)
+                else findNodeByText(root, POSITIVE_BUTTON_LABELS)) ?: return
             val target = UninstallEngine.pendingAutoConfirm.keys.firstOrNull { UninstallEngine.hasPendingAutoConfirm(it) }
             if (target == null) return
             val clicked = button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -71,6 +107,143 @@ class UninstallAccessibilityService : AccessibilityService() {
             if (clicked) UninstallEngine.clearPendingAutoConfirm(target)
         } finally {
             root.recycle()
+        }
+    }
+
+    private fun browserEnabled() =
+        connected && preferences.isEnabled(SetstoneControl.BROWSER_CONTROL)
+
+    private fun handleSamsungBrowser(event: AccessibilityEvent, packageName: String) {
+        if (packageName !in SamsungBrowserRules.monitored &&
+            (!browserGuard.hasAttempted || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
+        ) return
+        if (!browserEnabled()) {
+            browserGuard.reset()
+            return
+        }
+
+        val windowId = event.windowId
+        val active = browserRoot(packageName, windowId) ?: return
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            browserGuard.foregroundChanged(packageName)
+        }
+        if (packageName !in SamsungBrowserRules.monitored || browserGuard.hasAttempted(packageName)) return
+        if (packageName in SamsungBrowserRules.browsers) {
+            blockBrowserScreen(packageName, windowId)
+            return
+        }
+        if (packageName == SamsungBrowserRules.SETTINGS && browserIdentityCheckInProgress &&
+            event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        ) return
+
+        val source = if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) event.source else null
+        val screen = SamsungBrowserAccessibility.read(active, packageName, source)
+        val title = screen.settingsTargetTitle
+        if (title == null || screen.settingsTargetId) {
+            blockBrowserScreen(packageName, windowId, screen)
+        } else if (!browserIdentityCheckInProgress) {
+            browserIdentityCheckInProgress = true
+            serviceScope.launch {
+                try {
+                    val confirmed = withContext(Dispatchers.IO) {
+                        try {
+                            SamsungBrowserPackages.uniquelyMatchesLabel(this@UninstallAccessibilityService, title)
+                        } catch (_: SecurityException) {
+                            false
+                        }
+                    }
+                    if (!confirmed || !browserEnabled()) return@launch
+                    val current = browserRoot(packageName, windowId) ?: return@launch
+                    val verified = SamsungBrowserAccessibility.read(current, packageName, null)
+                    if (verified.settingsTargetTitle == title) {
+                        blockBrowserScreen(packageName, windowId, verified, settingsIdentityConfirmed = true)
+                    }
+                } finally {
+                    browserIdentityCheckInProgress = false
+                }
+            }
+        }
+    }
+
+    private fun browserRoot(packageName: String, windowId: Int) =
+        rootInActiveWindow?.takeIf { it.windowId == windowId && it.packageName?.toString() == packageName }
+
+    private fun blockBrowserScreen(
+        packageName: String,
+        windowId: Int,
+        screen: BrowserScreen = BrowserScreen(),
+        settingsIdentityConfirmed: Boolean = false
+    ) {
+        browserGuard.handle(
+            packageName = packageName,
+            enabled = browserEnabled(),
+            authorized = {
+                AccessibilityHelper.isServiceEnabled(this) && browserRoot(packageName, windowId) != null
+            },
+            screen = screen,
+            settingsIdentityConfirmed = settingsIdentityConfirmed,
+            goHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+        )
+    }
+
+    private fun handleUberNavigation(event: AccessibilityEvent, packageName: String) {
+        val enabled = connected && preferences.isEnabled(SetstoneControl.UBER_CONTROL)
+        if (!enabled) {
+            uberGuard.leaveUber()
+            return
+        }
+
+        if (packageName != UBER_RIDER_PACKAGE) {
+            if (uberGuard.homeAttempted && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                val active = rootInActiveWindow
+                if (active?.windowId == event.windowId && active.packageName?.toString() == packageName) {
+                    uberGuard.leaveUber()
+                }
+            }
+            return
+        }
+        if (uberGuard.homeAttempted) return
+
+        val active = rootInActiveWindow ?: return
+        val foreground = active.packageName?.toString() ?: return
+        if (active.windowId != event.windowId || foreground != UBER_RIDER_PACKAGE) return
+        val groups = UberAccessibilityNavigation.read(active)
+        if (groups.isEmpty()) return
+
+        uberGuard.handle(
+            enabled = preferences.isEnabled(SetstoneControl.UBER_CONTROL),
+            authorized = AccessibilityHelper.isServiceEnabled(this),
+            foregroundPackage = foreground,
+            groups = groups,
+            goHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+        )
+    }
+
+    private fun checkVpnDialog(windowId: Int) {
+        if (vpnCheckInProgress || vpnGuard.hasAttempted(windowId)) return
+        val initial = rootInActiveWindow?.let { SafeLookVpnDialog.read(it, windowId) } ?: return
+        if (initial.cancel == null) return
+
+        vpnCheckInProgress = true
+        serviceScope.launch {
+            try {
+                val expected = withContext(Dispatchers.IO) {
+                    SafeLookVpnDialog.expected(this@UninstallAccessibilityService, initial.dialog.title)
+                } ?: return@launch
+                if (!vpnSecurityEnabled()) return@launch
+                val current = rootInActiveWindow?.let { SafeLookVpnDialog.read(it, windowId) }
+                vpnGuard.handle(
+                    windowId = windowId,
+                    expected = expected,
+                    visible = current?.dialog,
+                    clickCancel = current?.cancel?.let { button ->
+                        { button.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+                    },
+                    goHome = { performGlobalAction(GLOBAL_ACTION_HOME) }
+                )
+            } finally {
+                vpnCheckInProgress = false
+            }
         }
     }
 
@@ -126,22 +299,37 @@ class UninstallAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
+    override fun onUnbind(intent: Intent?): Boolean {
+        connected = false
+        serviceConnected.value = false
+        browserGuard.reset()
+        uberGuard.leaveUber()
+        return super.onUnbind(intent)
+    }
+
     override fun onDestroy() {
+        connected = false
+        serviceConnected.value = false
+        browserGuard.reset()
         serviceScope.cancel()
         super.onDestroy()
     }
 
     private data class ProtectedTarget(val packageName: String, val appName: String)
 
-    private companion object {
-        const val TAG = "UninstallA11yService"
-        val PACKAGE_INSTALLER_PACKAGES = setOf(
+    companion object {
+        private val serviceConnected = MutableStateFlow(false)
+        internal val isConnected = serviceConnected.asStateFlow()
+
+
+        private const val TAG = "UninstallA11yService"
+        private val PACKAGE_INSTALLER_PACKAGES = setOf(
             "com.android.packageinstaller",
             "com.google.android.packageinstaller",
             "com.android.permissioncontroller",
             "com.google.android.permissioncontroller"
         )
-        val POSITIVE_BUTTON_LABELS = setOf("ok", "uninstall", "deactivate")
-        val NEGATIVE_BUTTON_LABELS = setOf("cancel", "no", "keep app")
+        private val POSITIVE_BUTTON_LABELS = setOf("ok", "uninstall", "deactivate")
+        private val NEGATIVE_BUTTON_LABELS = setOf("cancel", "no", "keep app")
     }
 }

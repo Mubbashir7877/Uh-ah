@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
  * the one-time Device Admin setup prompt). Backed by a StateFlow so the UI can
  * observe changes the same way it observes the Room-backed app list.
  */
-class PreferencesManager(context: Context) {
+class PreferencesManager(context: Context) : SetstoneSettingsStore {
 
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -38,6 +38,13 @@ class PreferencesManager(context: Context) {
             prefs.edit().putBoolean(KEY_INSTALL_PROTECTION_ENABLED, value).apply()
             _installProtectionEnabled.value = value
         }
+
+    override fun isEnabled(control: SetstoneControl): Boolean =
+        prefs.getBoolean(control.preferenceKey, true)
+
+    override fun setEnabled(control: SetstoneControl, enabled: Boolean) {
+        prefs.edit().putBoolean(control.preferenceKey, enabled).apply()
+    }
 
     /** Whether the first-launch Device Admin explanation has already been shown/dismissed. */
     var hasSeenDeviceAdminPrompt: Boolean

@@ -20,19 +20,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.uh_ah.data.PreferencesManager
 import com.example.uh_ah.device.AccessibilityHelper
 import com.example.uh_ah.device.DeviceAdminHelper
 import com.example.uh_ah.ui.MainViewModel
 import com.example.uh_ah.ui.InstallProtectionViewModel
+import com.example.uh_ah.ui.SetstoneSettings
 import com.example.uh_ah.ui.screens.AddAppSheet
 import com.example.uh_ah.ui.screens.AddInstalledAppSheet
 import com.example.uh_ah.ui.screens.AppListScreen
 import com.example.uh_ah.ui.screens.EngineTab
 import com.example.uh_ah.ui.screens.InstallProtectionScreen
 import com.example.uh_ah.ui.screens.InstallSurveyScreen
+import com.example.uh_ah.ui.screens.SetstoneEngineScreen
 import com.example.uh_ah.ui.screens.SurveyScreen
 import com.example.uh_ah.ui.theme.UhAhTheme
 
@@ -95,6 +99,9 @@ private fun UhAhApp(
     val isScanningInstalledApps by installViewModel.isScanning.collectAsStateWithLifecycle()
     val installSurveyState by installViewModel.surveyState.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current.applicationContext
+    val setstoneSettings = remember(context) { SetstoneSettings(PreferencesManager(context)) }
+
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
         viewModel.events.collect { message -> snackbarHostState.showSnackbar(message) }
@@ -111,7 +118,14 @@ private fun UhAhApp(
 
     val currentSurvey = surveyState
     val currentInstallSurvey = installSurveyState
-    if (selectedTab == EngineTab.REMOVE_INSTALLED && currentSurvey != null) {
+    if (selectedTab == EngineTab.SET_STONE) {
+        SetstoneEngineScreen(
+            settings = setstoneSettings,
+            accessibilityEnabled = isAccessibilityServiceActive,
+            onEnableAccessibility = onEnableAccessibility,
+            onTabSelected = { selectedTab = it }
+        )
+    } else if (selectedTab == EngineTab.REMOVE_INSTALLED && currentSurvey != null) {
         SurveyScreen(
             state = currentSurvey,
             onAnswer = viewModel::answerSurveyQuestion,
